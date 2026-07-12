@@ -15,7 +15,11 @@ use crate::output::Format;
 use crate::session::{Agent, Session};
 
 #[derive(Parser)]
-#[command(version, about = "List local AI coding agent sessions (Claude Code, Codex, Cursor, Pi)")]
+#[command(
+    version,
+    about = "List local AI coding agent sessions (Claude Code, Codex, Cursor, Pi)",
+    arg_required_else_help = true
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
@@ -68,7 +72,7 @@ fn main() -> ExitCode {
             Ok(mut found) => sessions.append(&mut found),
             Err(err) => {
                 failed = true;
-                eprintln!("casp: {agent}: {err:#}");
+                eprintln!("{}: {agent}: {err:#}", env!("CARGO_BIN_NAME"));
             }
         }
     }
@@ -90,7 +94,7 @@ fn main() -> ExitCode {
         Ok(()) => exit(failed),
         Err(err) if is_broken_pipe(&err) => exit(failed),
         Err(err) => {
-            eprintln!("casp: {err:#}");
+            eprintln!("{}: {err:#}", env!("CARGO_BIN_NAME"));
             ExitCode::FAILURE
         }
     }
@@ -113,14 +117,14 @@ fn run_picker(cli: &Cli, sessions: &[Session], all: bool, print: Option<pick::Pr
                 }
                 None => {
                     let err = pick::resume(session);
-                    eprintln!("casp: {err:#}");
+                    eprintln!("{}: {err:#}", env!("CARGO_BIN_NAME"));
                     ExitCode::FAILURE
                 }
             }
         }
         Ok(None) => ExitCode::from(130),
         Err(err) => {
-            eprintln!("casp: {err:#}");
+            eprintln!("{}: {err:#}", env!("CARGO_BIN_NAME"));
             ExitCode::FAILURE
         }
     }

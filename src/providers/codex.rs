@@ -29,7 +29,7 @@ impl super::Provider for Codex {
         if db.exists() {
             match query_threads(&db, self.include_archived, &titles) {
                 Ok(sessions) => return Ok(sessions),
-                Err(err) => eprintln!("casp: codex: {err:#}; falling back to rollout scan"),
+                Err(err) => eprintln!("{}: codex: {err:#}; falling back to rollout scan", env!("CARGO_BIN_NAME")),
             }
         }
         self.scan_rollouts(&titles)

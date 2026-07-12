@@ -12,7 +12,7 @@ const CLAUDE_A: &str = "11111111-1111-4111-8111-111111111111";
 const CLAUDE_B: &str = "22222222-2222-4222-8222-222222222222";
 
 fn run(home: &Path, args: &[&str]) -> Output {
-    Command::cargo_bin("casp")
+    Command::cargo_bin("ap")
         .unwrap()
         .arg("--root")
         .arg(home)
@@ -302,7 +302,7 @@ fn corrupt_codex_db_warns_and_falls_back_to_scan() {
     write_at(&home.path().join(".codex/state_5.sqlite"), "not a database", BASE_MS);
     let output = run(home.path(), &[]);
     assert_eq!(output.status.code(), Some(0));
-    assert!(stderr_text(&output).contains("casp: codex:"));
+    assert!(stderr_text(&output).contains("ap: codex:"));
     assert_eq!(stdout_json(&output)[0]["id"], "cx-scan");
 }
 
@@ -313,7 +313,7 @@ fn corrupt_cursor_db_fails_only_that_provider() {
     fs::write(&db, "not a database").unwrap();
     let output = run(home.path(), &[]);
     assert_eq!(output.status.code(), Some(1));
-    assert!(stderr_text(&output).contains("casp: cursor:"));
+    assert!(stderr_text(&output).contains("ap: cursor:"));
     let agents: Vec<_> = stdout_json(&output)
         .as_array()
         .unwrap()

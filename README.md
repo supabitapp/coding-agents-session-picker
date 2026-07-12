@@ -1,6 +1,6 @@
-# casp — coding agents session picker
+# ap — coding agents session picker
 
-Lists local AI coding agent sessions as machine-readable JSON, and resumes them through an interactive fuzzy picker (`casp pick`).
+Lists local AI coding agent sessions as machine-readable JSON, and resumes them through an interactive fuzzy picker (`ap pick`).
 
 ## Supported agents
 
@@ -15,16 +15,18 @@ Adding an agent = one module in `src/providers/` implementing `Provider`, one `A
 
 ## Usage
 
-```sh
-casp                       # every session, JSON array, newest first
-casp -n 20 -a codex        # 20 most recent Codex threads
-casp --cwd ~/code/myproj   # sessions started in that directory or below
-casp -f table | column -ts \t
+Bare `ap` prints help.
 
-casp pick                  # pick a session here, resume it in its agent
-casp pick --all            # pick across every directory
-casp pick --print id       # print instead of resuming (fzf-style scripting)
-cd (casp pick --print cwd) # jump to a session's directory
+```sh
+ap -f json               # every session, JSON array, newest first
+ap -n 20 -a codex        # 20 most recent Codex threads
+ap --cwd ~/code/myproj   # sessions started in that directory or below
+ap -f table | column -ts \t
+
+ap pick                  # pick a session here, resume it in its agent
+ap pick --all            # pick across every directory
+ap pick --print id       # print instead of resuming (fzf-style scripting)
+cd (ap pick --print cwd) # jump to a session's directory
 ```
 
 ```
@@ -35,14 +37,14 @@ cd (casp pick --print cwd) # jump to a session's directory
     --include-archived   include archived Codex threads
     --root <DIR>         resolve agent stores under DIR instead of $HOME
 
-casp pick
+ap pick
     --all                start showing all directories, not just the current one
     --print <FIELD>      print id | path | cwd | json to stdout instead of resuming
 ```
 
 ## Picker
 
-`casp pick` opens a fuzzy picker scoped to the current directory; selecting a session replaces casp with that agent resumed in the session's own directory (`claude --resume <id>`, `codex resume <id>`, `cursor-agent --resume <id>`, `pi --session <path>`). With `--print` nothing is launched — the picker renders on `/dev/tty` and stdout carries only the chosen field, so it composes with command substitution.
+`ap pick` opens a fuzzy picker scoped to the current directory; selecting a session replaces ap with that agent resumed in the session's own directory (`claude --resume <id>`, `codex resume <id>`, `cursor-agent --resume <id>`, `pi --session <path>`). With `--print` nothing is launched — the picker renders on `/dev/tty` and stdout carries only the chosen field, so it composes with command substitution.
 
 ```
 > sidebar▏
@@ -92,6 +94,6 @@ Sorted by `updated_at` descending. Sessions and stderr never mix: data goes to s
 ## Build
 
 ```sh
-cargo build --release   # binary at target/release/casp
+cargo build --release   # binary at target/release/ap
 cargo test
 ```
