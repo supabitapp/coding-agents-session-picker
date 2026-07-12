@@ -1,99 +1,26 @@
-# ap — coding agents session picker
+# ap
 
-Lists local AI coding agent sessions as machine-readable JSON, and resumes them through an interactive fuzzy picker (`ap pick`).
+Pick and resume your Claude Code, Codex, Cursor, and Pi sessions from one place.
 
-## Supported agents
-
-| agent | source |
-|---|---|
-| `claude-code` | `~/.claude/projects/**/*.jsonl` (respects `CLAUDE_CONFIG_DIR`) |
-| `codex` | `~/.codex/state_5.sqlite`, falling back to scanning `~/.codex/sessions/**` rollouts; respects `CODEX_HOME` |
-| `cursor` | `~/Library/Application Support/Cursor/.../state.vscdb` + `~/.cursor/projects` |
-| `pi` | `~/.pi/agent/sessions/**/*.jsonl` |
-
-Adding an agent = one module in `src/providers/` implementing `Provider`, one `Agent` enum variant, one registry line in `providers::all`.
-
-## Usage
-
-Bare `ap` prints help.
+# Installation
 
 ```sh
-ap -f json               # every session, JSON array, newest first
-ap -n 20 -a codex        # 20 most recent Codex threads
-ap --cwd ~/code/myproj   # sessions started in that directory or below
-ap -f table | column -ts \t
-
-ap pick                  # pick a session here, resume it in its agent
-ap pick --all            # pick across every directory
-ap pick --print id       # print instead of resuming (fzf-style scripting)
-cd (ap pick --print cwd) # jump to a session's directory
+cargo install --git https://github.com/supabitapp/coding-agents-session-picker
 ```
 
-```
--f, --format <FORMAT>    json (default) | ndjson | table
--a, --agent <AGENT>      claude-code, codex, cursor, pi (repeatable or comma-separated)
-    --cwd <PATH>         only sessions whose working directory is PATH or inside it
--n, --limit <N>          at most N sessions, applied after sorting
-    --include-archived   include archived Codex threads
-    --root <DIR>         resolve agent stores under DIR instead of $HOME
+# Usage
 
+```sh
 ap pick
-    --all                start showing all directories, not just the current one
-    --print <FIELD>      print id | path | cwd | json to stdout instead of resuming
 ```
 
-## Picker
-
-`ap pick` opens a fuzzy picker scoped to the current directory; selecting a session replaces ap with that agent resumed in the session's own directory (`claude --resume <id>`, `codex resume <id>`, `cursor-agent --resume <id>`, `pi --session <path>`). With `--print` nothing is launched — the picker renders on `/dev/tty` and stdout carries only the chosen field, so it composes with command substitution.
-
-```
-> sidebar▏
-scope: cwd (~/code/github.com/supabitapp/supaterm) · agent: all
-▶ codex        2h ago   Revamp sidebar projects            khoi/new-tabbar
-  codex        3h ago   We want to do a revamped of how …  khoi/new-tabbar
-  claude-code  5h ago   Build CLI tool to list and resum…  main
-~/code/github.com/supabitapp/supaterm
-12/7382 · ↑↓ move · enter resume · tab cwd/all · ctrl-a agent · alt-1..4 solo · esc quit
-```
-
-Keys: type to fuzzy-filter · `↑/↓` or `ctrl-p/n` move · `pgup/pgdn` jump · `tab` toggle current-directory/all scope · `ctrl-a` cycle agent · `alt-1..4` solo one agent · `enter` resume · `esc` cancel.
-
-## Schema
-
-Every session object always has all seven keys; missing values are `null`.
-
-```json
-{
-  "agent": "codex",
-  "id": "019f57d5-5f74-7530-8c02-0b22d5e08eae",
-  "title": "Revamp sidebar projects",
-  "cwd": "/Users/you/code/proj",
-  "branch": "main",
-  "updated_at": "2026-07-12T20:14:33.116Z",
-  "path": "/Users/you/.codex/sessions/2026/07/12/rollout-....jsonl"
-}
-```
-
-Sorted by `updated_at` descending. Sessions and stderr never mix: data goes to stdout, warnings to stderr.
-
-## Exit codes
-
-| code | meaning |
-|---|---|
-| 0 | complete picture (missing stores and skipped malformed files are normal) |
-| 1 | at least one agent's store failed to read; stdout still holds valid JSON of the rest |
-| 2 | usage error |
-| 130 | picker cancelled (esc/ctrl-c), nothing printed |
-
-## Notes
-
-- SQLite stores are opened read-only and WAL-aware; running agents are never blocked.
-- Zstd-compressed Codex rollouts (`.jsonl.zst`) are ignored by the fallback scanner.
-- Cursor stores no git branch, so `branch` is always `null` there.
-
-## Build
+Fuzzy-pick a session from the current directory and resume it in its agent. Type to filter · `tab` all directories · `ctrl-a` cycle agent · `enter` resume · `esc` quit.
 
 ```sh
-cargo build --release   # binary at target/release/ap
-cargo test
+ap pick --all                          # pick across every directory
+claude --resume (ap pick --print id)   # print the id instead of resuming
+cd (ap pick --print cwd)               # jump to a session's directory
+
+ap -f json | jq '.[0]'                 # all sessions as JSON, newest first
+ap -a codex -n 20 -f table             # 20 latest Codex threads as a table
 ```
