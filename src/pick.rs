@@ -1,5 +1,7 @@
 use std::fs::{File, OpenOptions};
+use std::os::unix::process::CommandExt;
 use std::path::Path;
+use std::process::Command;
 
 use anyhow::Context;
 use clap::ValueEnum;
@@ -34,12 +36,7 @@ struct State {
     selected: usize,
 }
 
-pub fn run(
-    sessions: &[Session],
-    scope: &Path,
-    scoped: bool,
-    print: Print,
-) -> anyhow::Result<Option<String>> {
+pub fn run(sessions: &[Session], scope: &Path, scoped: bool) -> anyhow::Result<Option<usize>> {
     let tty = OpenOptions::new()
         .read(true)
         .write(true)
@@ -51,16 +48,51 @@ pub fn run(
     let picked = event_loop(&mut terminal, sessions, scope, scoped);
     execute!(&tty, LeaveAlternateScreen)?;
     disable_raw_mode()?;
-    Ok(picked?.map(|index| output(&sessions[index], print)))
+    picked
 }
 
-fn output(session: &Session, print: Print) -> String {
+pub fn field(session: &Session, print: Print) -> String {
     match print {
         Print::Id => session.id.clone(),
         Print::Path => session.path.clone().unwrap_or_default(),
         Print::Cwd => session.cwd.clone().unwrap_or_default(),
         Print::Json => serde_json::to_string(session).unwrap_or_default(),
     }
+}
+
+pub fn resume(session: &Session) -> anyhow::Error {
+    let mut command = resume_command(session);
+    let program = command.get_program().to_string_lossy().into_owned();
+    anyhow::Error::new(command.exec()).context(format!("launching {program}"))
+}
+
+fn resume_command(session: &Session) -> Command {
+    let mut command = match session.agent {
+        Agent::ClaudeCode => {
+            let mut command = Command::new("claude");
+            command.arg("--resume").arg(&session.id);
+            command
+        }
+        Agent::Codex => {
+            let mut command = Command::new("codex");
+            command.arg("resume").arg(&session.id);
+            command
+        }
+        Agent::Cursor => {
+            let mut command = Command::new("cursor-agent");
+            command.arg("--resume").arg(&session.id);
+            command
+        }
+        Agent::Pi => {
+            let mut command = Command::new("pi");
+            command.arg("--session").arg(session.path.as_deref().unwrap_or(&session.id));
+            command
+        }
+    };
+    if let Some(cwd) = session.cwd.as_deref().filter(|cwd| Path::new(cwd).is_dir()) {
+        command.current_dir(cwd);
+    }
+    command
 }
 
 fn event_loop(
@@ -262,7 +294,7 @@ fn draw(
     );
     frame.render_widget(
         Line::from(format!(
-            "{}/{} · ↑↓ move · enter select · tab cwd/all · ctrl-a agent · alt-1..4 solo · esc quit",
+            "{}/{} · ↑↓ move · enter resume · tab cwd/all · ctrl-a agent · alt-1..4 solo · esc quit",
             rows.len(),
             sessions.len(),
         ))
@@ -363,6 +395,46 @@ mod tests {
                 None,
             ]
         );
+    }
+
+    #[test]
+    fn resume_commands_match_each_agent_cli() {
+        let shape = |agent, title: &str| {
+            let command = resume_command(&session(agent, title, "/nonexistent"));
+            let args: Vec<String> = command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            (command.get_program().to_string_lossy().into_owned(), args)
+        };
+        assert_eq!(
+            shape(Agent::ClaudeCode, "a"),
+            ("claude".into(), vec!["--resume".into(), "claude-code-a".into()])
+        );
+        assert_eq!(shape(Agent::Codex, "b"), ("codex".into(), vec!["resume".into(), "codex-b".into()]));
+        assert_eq!(
+            shape(Agent::Cursor, "c"),
+            ("cursor-agent".into(), vec!["--resume".into(), "cursor-c".into()])
+        );
+        assert_eq!(shape(Agent::Pi, "d"), ("pi".into(), vec!["--session".into(), "pi-d".into()]));
+    }
+
+    #[test]
+    fn resume_runs_in_session_cwd_when_it_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut with_dir = session(Agent::Codex, "x", dir.path().to_str().unwrap());
+        assert_eq!(resume_command(&with_dir).get_current_dir(), Some(dir.path()));
+        with_dir.cwd = Some("/does/not/exist".into());
+        assert_eq!(resume_command(&with_dir).get_current_dir(), None);
+    }
+
+    #[test]
+    fn pi_resume_prefers_transcript_path() {
+        let mut pi = session(Agent::Pi, "x", "/w");
+        pi.path = Some("/w/sessions/x.jsonl".into());
+        let command = resume_command(&pi);
+        let args: Vec<_> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        assert_eq!(args, ["--session", "/w/sessions/x.jsonl"]);
     }
 
     #[test]

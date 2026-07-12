@@ -1,6 +1,6 @@
 # casp — coding agents session picker
 
-Lists local AI coding agent sessions. Machine-readable JSON when piped; an interactive fuzzy picker when run on a terminal.
+Lists local AI coding agent sessions as machine-readable JSON, and resumes them through an interactive fuzzy picker (`casp pick`).
 
 ## Supported agents
 
@@ -15,31 +15,34 @@ Adding an agent = one module in `src/providers/` implementing `Provider`, one `A
 
 ## Usage
 
-Following the TTY convention: stdout on a terminal → picker; stdout piped/captured → JSON list. `-f` forces list output either way — agents driving a PTY should pass `-f json`.
-
 ```sh
-casp                       # terminal: picker · piped: JSON array, newest first
-casp | jq                  # JSON list (stdout is a pipe)
-casp -n 20 -a codex -f table
-casp --cwd ~/code/myproj -f json
-claude --resume (casp -a claude-code)     # pick, then resume
-cd (casp --print cwd)                     # jump to a session's directory
+casp                       # every session, JSON array, newest first
+casp -n 20 -a codex        # 20 most recent Codex threads
+casp --cwd ~/code/myproj   # sessions started in that directory or below
+casp -f table | column -ts \t
+
+casp pick                  # pick a session here, resume it in its agent
+casp pick --all            # pick across every directory
+casp pick --print id       # print instead of resuming (fzf-style scripting)
+cd (casp pick --print cwd) # jump to a session's directory
 ```
 
 ```
--f, --format <FORMAT>    force list output: json | ndjson | table
+-f, --format <FORMAT>    json (default) | ndjson | table
 -a, --agent <AGENT>      claude-code, codex, cursor, pi (repeatable or comma-separated)
     --cwd <PATH>         only sessions whose working directory is PATH or inside it
 -n, --limit <N>          at most N sessions, applied after sorting
     --include-archived   include archived Codex threads
     --root <DIR>         resolve agent stores under DIR instead of $HOME
-    --all                picker: start showing all directories, not just the current one
-    --print <FIELD>      picker: what selection prints to stdout: id (default) | path | cwd | json
+
+casp pick
+    --all                start showing all directories, not just the current one
+    --print <FIELD>      print id | path | cwd | json to stdout instead of resuming
 ```
 
 ## Picker
 
-The picker renders on `/dev/tty`; stdout stays clean and carries only the selected field, so it composes with command substitution. Scoped to the current directory by default.
+`casp pick` opens a fuzzy picker scoped to the current directory; selecting a session replaces casp with that agent resumed in the session's own directory (`claude --resume <id>`, `codex resume <id>`, `cursor-agent --resume <id>`, `pi --session <path>`). With `--print` nothing is launched — the picker renders on `/dev/tty` and stdout carries only the chosen field, so it composes with command substitution.
 
 ```
 > sidebar▏
@@ -48,10 +51,10 @@ scope: cwd (~/code/github.com/supabitapp/supaterm) · agent: all
   codex        3h ago   We want to do a revamped of how …  khoi/new-tabbar
   claude-code  5h ago   Build CLI tool to list and resum…  main
 ~/code/github.com/supabitapp/supaterm
-12/7382 · ↑↓ move · enter select · tab cwd/all · ctrl-a agent · alt-1..4 solo · esc quit
+12/7382 · ↑↓ move · enter resume · tab cwd/all · ctrl-a agent · alt-1..4 solo · esc quit
 ```
 
-Keys: type to fuzzy-filter · `↑/↓` or `ctrl-p/n` move · `pgup/pgdn` jump · `tab` toggle current-directory/all scope · `ctrl-a` cycle agent · `alt-1..4` solo one agent · `enter` select · `esc` cancel.
+Keys: type to fuzzy-filter · `↑/↓` or `ctrl-p/n` move · `pgup/pgdn` jump · `tab` toggle current-directory/all scope · `ctrl-a` cycle agent · `alt-1..4` solo one agent · `enter` resume · `esc` cancel.
 
 ## Schema
 
