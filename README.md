@@ -19,6 +19,8 @@ Fuzzy-pick a session from the current directory and resume it in its agent. Type
 ```sh
 ap pick --all                          # pick across every directory
 claude --resume (ap pick --print id)   # print the id instead of resuming
+codex resume (ap pick -a codex --print id)
+pi --session (ap pick -a pi --print path)
 cd (ap pick --print cwd)               # jump to a session's directory
 
 ap -f json | jq '.[0]'                 # all sessions as JSON, newest first
