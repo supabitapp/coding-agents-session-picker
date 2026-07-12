@@ -1,1 +1,72 @@
-# Coding Agents Session Picker
+# casp — coding agents session picker
+
+Lists local AI coding agent sessions as machine-readable JSON. Built for programmatic consumers (agents, scripts) first; humans get `--format table`.
+
+## Supported agents
+
+| agent | source |
+|---|---|
+| `claude-code` | `~/.claude/projects/**/*.jsonl` (respects `CLAUDE_CONFIG_DIR`) |
+| `codex` | `~/.codex/state_5.sqlite`, falling back to scanning `~/.codex/sessions/**` rollouts; respects `CODEX_HOME` |
+| `cursor` | `~/Library/Application Support/Cursor/.../state.vscdb` + `~/.cursor/projects` |
+| `pi` | `~/.pi/agent/sessions/**/*.jsonl` |
+
+Adding an agent = one module in `src/providers/` implementing `Provider`, one `Agent` enum variant, one registry line in `providers::all`.
+
+## Usage
+
+```sh
+casp                       # every session, JSON array, newest first
+casp -n 20 -a codex        # 20 most recent Codex threads
+casp --cwd ~/code/myproj   # sessions started in that directory or below
+casp -f table | column -ts $'\t'
+casp -f ndjson | fzf       # pick a session id interactively
+```
+
+```
+-f, --format <FORMAT>    json (default) | ndjson | table
+-a, --agent <AGENT>      claude-code, codex, cursor, pi (repeatable or comma-separated)
+    --cwd <PATH>         only sessions whose working directory is PATH or inside it
+-n, --limit <N>          at most N sessions, applied after sorting
+    --include-archived   include archived Codex threads
+    --root <DIR>         resolve agent stores under DIR instead of $HOME
+```
+
+## Schema
+
+Every session object always has all seven keys; missing values are `null`.
+
+```json
+{
+  "agent": "codex",
+  "id": "019f57d5-5f74-7530-8c02-0b22d5e08eae",
+  "title": "Revamp sidebar projects",
+  "cwd": "/Users/you/code/proj",
+  "branch": "main",
+  "updated_at": "2026-07-12T20:14:33.116Z",
+  "path": "/Users/you/.codex/sessions/2026/07/12/rollout-....jsonl"
+}
+```
+
+Sorted by `updated_at` descending. Sessions and stderr never mix: data goes to stdout, warnings to stderr.
+
+## Exit codes
+
+| code | meaning |
+|---|---|
+| 0 | complete picture (missing stores and skipped malformed files are normal) |
+| 1 | at least one agent's store failed to read; stdout still holds valid JSON of the rest |
+| 2 | usage error |
+
+## Notes
+
+- SQLite stores are opened read-only and WAL-aware; running agents are never blocked.
+- Zstd-compressed Codex rollouts (`.jsonl.zst`) are ignored by the fallback scanner.
+- Cursor stores no git branch, so `branch` is always `null` there.
+
+## Build
+
+```sh
+cargo build --release   # binary at target/release/casp
+cargo test
+```
