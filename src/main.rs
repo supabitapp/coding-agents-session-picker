@@ -17,8 +17,7 @@ use crate::session::{Agent, Session};
 #[derive(Parser)]
 #[command(
     version,
-    about = "List local AI coding agent sessions (Claude Code, Codex, Cursor, Pi)",
-    arg_required_else_help = true
+    about = "List local AI coding agent sessions (Claude Code, Codex, Cursor, Pi)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -55,6 +54,7 @@ enum Cmd {
 }
 
 fn main() -> ExitCode {
+    let bare = std::env::args_os().len() == 1;
     let cli = Cli::parse();
     let providers: Vec<_> = providers::all(cli.root.as_deref(), cli.include_archived)
         .into_iter()
@@ -81,7 +81,7 @@ fn main() -> ExitCode {
         sessions.truncate(limit);
     }
 
-    if let Some(Cmd::Pick { all, print }) = cli.command {
+    if let Some((all, print)) = picker_options(cli.command.as_ref(), bare) {
         return run_picker(&cli, &sessions, all, print, failed);
     }
     if let Some(base) = &cli.cwd {
@@ -97,6 +97,14 @@ fn main() -> ExitCode {
             eprintln!("{}: {err:#}", env!("CARGO_BIN_NAME"));
             ExitCode::FAILURE
         }
+    }
+}
+
+fn picker_options(command: Option<&Cmd>, bare: bool) -> Option<(bool, Option<pick::Print>)> {
+    match command {
+        Some(Cmd::Pick { all, print }) => Some((*all, *print)),
+        None if bare => Some((false, None)),
+        None => None,
     }
 }
 
@@ -147,4 +155,19 @@ fn is_broken_pipe(err: &anyhow::Error) -> bool {
 
 fn exit(failed: bool) -> ExitCode {
     if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bare_invocation_defaults_to_picker() {
+        assert!(matches!(picker_options(None, true), Some((false, None))));
+    }
+
+    #[test]
+    fn flag_only_invocation_still_lists() {
+        assert!(picker_options(None, false).is_none());
+    }
 }

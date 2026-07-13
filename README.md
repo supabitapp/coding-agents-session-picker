@@ -11,12 +11,13 @@ cargo install --git https://github.com/supabitapp/coding-agents-session-picker
 # Usage
 
 ```sh
-ap pick
+ap
 ```
 
 Fuzzy-pick a session from the current directory and resume it in its agent. Type to filter · `tab` all directories · `ctrl-a` cycle agent · `enter` resume · `esc` quit.
 
 ```sh
+ap pick                                # explicit form
 ap pick --all                          # pick across every directory
 claude --resume (ap pick --print id)   # print the id instead of resuming
 codex resume (ap pick -a codex --print id)
