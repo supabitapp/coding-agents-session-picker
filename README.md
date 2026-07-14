@@ -5,7 +5,7 @@ Pick and resume your Claude Code, Codex, Cursor, and Pi sessions from one place.
 # Installation
 
 ```sh
-cargo install --git https://github.com/supabitapp/coding-agents-session-picker
+cargo install --git https://github.com/khoi/coding-agents-session-picker
 ```
 
 # Usage
