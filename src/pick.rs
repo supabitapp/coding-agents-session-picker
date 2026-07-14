@@ -408,10 +408,17 @@ fn draw_table(
             Constraint::Min(10),
         ]
     } else {
+        let branch_width = rows
+            .iter()
+            .filter_map(|&index| sessions[index].branch.as_deref())
+            .map(|branch| Line::from(branch).width())
+            .max()
+            .unwrap_or_default()
+            .min(18) as u16;
         vec![
             Constraint::Length(7),
             Constraint::Length(6),
-            Constraint::Length(18),
+            Constraint::Length(branch_width),
             Constraint::Min(20),
         ]
     };
@@ -606,6 +613,37 @@ mod tests {
             .collect();
         assert!(rendered.starts_with("▶ 1w ago"));
         assert!(rendered.find("feature").unwrap() < rendered.find("revamp sidebar").unwrap());
+    }
+
+    #[test]
+    fn table_sizes_branch_column_to_its_content() {
+        let mut sessions = fixtures();
+        sessions[0].branch = Some("main".to_owned());
+        let mut terminal = Terminal::new(TestBackend::new(60, 1)).unwrap();
+        terminal
+            .draw(|frame| {
+                draw_table(
+                    frame,
+                    &sessions,
+                    &[0],
+                    "2026-07-12T00:00:00Z".parse().unwrap(),
+                    frame.area(),
+                    false,
+                    0,
+                )
+            })
+            .unwrap();
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert_eq!(
+            rendered.find("revamp sidebar"),
+            rendered.find("main").map(|index| index + 5)
+        );
     }
 
     #[test]
