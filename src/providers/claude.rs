@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use serde_json::Value;
 
+use crate::conversation::{is_preamble, text_blocks};
 use crate::scrape::{extract_first, extract_last};
 use crate::session::{Agent, Session, none_if_empty, sort_desc, truncate_chars};
 
@@ -85,7 +86,7 @@ fn first_prompt(head: &str) -> Option<String> {
         .filter(|entry| {
             entry["type"] == "user" && entry["isMeta"] != true && entry["isCompactSummary"] != true
         })
-        .flat_map(|entry| super::text_blocks(&entry["message"]["content"]))
+        .flat_map(|entry| text_blocks(&entry["message"]["content"]))
         .find_map(|text| {
             if command.is_none() {
                 command = command_text(&text);
@@ -114,7 +115,7 @@ fn prompt_text(text: &str) -> Option<String> {
         let command = rest.split("</bash-input>").next().unwrap_or(rest).trim();
         return (!command.is_empty()).then(|| format!("! {command}"));
     }
-    if text.is_empty() || super::is_preamble(text) {
+    if text.is_empty() || is_preamble(text) {
         return None;
     }
     Some(text.to_owned())

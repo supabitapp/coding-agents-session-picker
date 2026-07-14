@@ -1,3 +1,4 @@
+mod conversation;
 mod output;
 mod pick;
 mod providers;

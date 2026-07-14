@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
+use crate::conversation::{is_preamble, text_blocks};
 use crate::session::{Agent, Session, none_if_empty, truncate_chars};
 
 pub struct Codex {
@@ -127,7 +128,7 @@ fn line_user_prompt(line: &Value) -> Option<String> {
     let texts = if line["type"] == "event_msg" && payload["type"] == "user_message" {
         vec![payload["message"].as_str()?.to_owned()]
     } else if line["type"] == "response_item" && payload["type"] == "message" && payload["role"] == "user" {
-        super::text_blocks(&payload["content"])
+        text_blocks(&payload["content"])
     } else {
         return None;
     };
@@ -136,7 +137,7 @@ fn line_user_prompt(line: &Value) -> Option<String> {
         .map(|text| text.trim())
         .find(|text| {
             !text.is_empty()
-                && !super::is_preamble(text)
+                && !is_preamble(text)
                 && !text.starts_with("# AGENTS.md instructions")
         })
         .map(|text| truncate_chars(text, 200))

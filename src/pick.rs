@@ -13,12 +13,13 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::prelude::CrosstermBackend;
 use ratatui::style::{Modifier, Style};
-use ratatui::text::Line;
-use ratatui::widgets::{Row, Table, TableState};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Paragraph, Row, Table, TableState, Wrap};
 
+use crate::conversation::{self, Message};
 use crate::session::{Agent, Session};
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -34,6 +35,7 @@ struct State {
     solo: Option<Agent>,
     scoped: bool,
     selected: usize,
+    preview: Option<Result<Vec<Message>, String>>,
 }
 
 pub fn run(sessions: &[Session], scope: &Path, scoped: bool) -> anyhow::Result<Option<usize>> {
@@ -107,10 +109,18 @@ fn event_loop(
         solo: None,
         scoped,
         selected: 0,
+        preview: None,
     };
+    let mut preview_dirty = false;
     loop {
         let rows = visible(sessions, scope, &state, &mut matcher);
         state.selected = state.selected.min(rows.len().saturating_sub(1));
+        if preview_dirty {
+            if state.preview.is_some() {
+                state.preview = Some(load_preview(sessions, &rows, state.selected));
+            }
+            preview_dirty = false;
+        }
         terminal.draw(|frame| draw(frame, sessions, scope, &state, &rows))?;
         let Event::Key(key) = read()? else { continue };
         if key.kind != KeyEventKind::Press {
@@ -123,34 +133,54 @@ fn event_loop(
                     return Ok(Some(index));
                 }
             }
-            Action::Move(delta) =>
-
-                state.selected = state
+            Action::Move(delta) => {
+                let selected = state
                     .selected
                     .saturating_add_signed(delta)
-                    .min(rows.len().saturating_sub(1)),
-            Action::ToggleScope => state.scoped = !state.scoped,
-            Action::CycleAgent => state.solo = cycle(state.solo),
+                    .min(rows.len().saturating_sub(1));
+                preview_dirty = selected != state.selected;
+                state.selected = selected;
+            }
+            Action::TogglePreview => {
+                state.preview = if state.preview.is_some() {
+                    None
+                } else {
+                    Some(load_preview(sessions, &rows, state.selected))
+                };
+            }
+            Action::ToggleScope => {
+                state.scoped = !state.scoped;
+                preview_dirty = true;
+            }
+            Action::CycleAgent => {
+                state.solo = cycle(state.solo);
+                preview_dirty = true;
+            }
             Action::SoloAgent(agent) => {
                 state.solo = (state.solo != Some(agent)).then_some(agent);
+                preview_dirty = true;
             }
             Action::Type(c) => {
                 state.query.push(c);
                 state.selected = 0;
+                preview_dirty = true;
             }
             Action::Erase => {
                 state.query.pop();
                 state.selected = 0;
+                preview_dirty = true;
             }
             Action::None => {}
         }
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum Action {
     Quit,
     Accept,
     Move(isize),
+    TogglePreview,
     ToggleScope,
     CycleAgent,
     SoloAgent(Agent),
@@ -172,6 +202,7 @@ fn action(key: KeyEvent) -> Action {
         KeyCode::Char('n') if ctrl => Action::Move(1),
         KeyCode::PageUp => Action::Move(-10),
         KeyCode::PageDown => Action::Move(10),
+        KeyCode::Char(' ') if !ctrl && !alt => Action::TogglePreview,
         KeyCode::Tab => Action::ToggleScope,
         KeyCode::Char('a') if ctrl => Action::CycleAgent,
         KeyCode::Char(c @ '1'..='4') if alt => {
@@ -181,6 +212,17 @@ fn action(key: KeyEvent) -> Action {
         KeyCode::Char(c) if !ctrl && !alt => Action::Type(c),
         _ => Action::None,
     }
+}
+
+fn load_preview(
+    sessions: &[Session],
+    rows: &[usize],
+    selected: usize,
+) -> Result<Vec<Message>, String> {
+    let Some(&index) = rows.get(selected) else {
+        return Ok(Vec::new());
+    };
+    conversation::load(&sessions[index]).map_err(|err| format!("{err:#}"))
 }
 
 fn cycle(solo: Option<Agent>) -> Option<Agent> {
@@ -262,27 +304,15 @@ fn draw(
     );
 
     let now = jiff::Timestamp::now();
-    let table = Table::new(
-        rows.iter().map(|&index| {
-            let session = &sessions[index];
-            Row::new(vec![
-                session.agent.to_string(),
-                relative(now, session.updated_at),
-                session.title.clone().unwrap_or_default(),
-                session.branch.clone().unwrap_or_default(),
-            ])
-        }),
-        [
-            Constraint::Length(11),
-            Constraint::Length(7),
-            Constraint::Min(20),
-            Constraint::Length(18),
-        ],
-    )
-    .row_highlight_style(Style::new().add_modifier(Modifier::REVERSED))
-    .highlight_symbol("▶ ");
-    let mut table_state = TableState::default().with_selected(Some(state.selected));
-    frame.render_stateful_widget(table, list, &mut table_state);
+    if let Some(preview) = &state.preview {
+        let [table, conversation] =
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .areas(list);
+        draw_table(frame, sessions, rows, now, table, true, state.selected);
+        draw_preview(frame, conversation, preview);
+    } else {
+        draw_table(frame, sessions, rows, now, list, false, state.selected);
+    }
 
     let selected_cwd = rows
         .get(state.selected)
@@ -294,13 +324,89 @@ fn draw(
     );
     frame.render_widget(
         Line::from(format!(
-            "{}/{} · ↑↓ move · enter resume · tab cwd/all · ctrl-a agent · alt-1..4 solo · esc quit",
+            "{}/{} · ↑↓ move · space preview · enter resume · tab cwd/all · ctrl-a agent · alt-1..4 solo · esc quit",
             rows.len(),
             sessions.len(),
         ))
         .style(Style::new().add_modifier(Modifier::DIM)),
         hints,
     );
+}
+
+fn draw_table(
+    frame: &mut ratatui::Frame,
+    sessions: &[Session],
+    rows: &[usize],
+    now: jiff::Timestamp,
+    area: Rect,
+    compact: bool,
+    selected: usize,
+) {
+    let widths = if compact {
+        vec![
+            Constraint::Length(11),
+            Constraint::Length(7),
+            Constraint::Min(10),
+        ]
+    } else {
+        vec![
+            Constraint::Length(11),
+            Constraint::Length(7),
+            Constraint::Min(20),
+            Constraint::Length(18),
+        ]
+    };
+    let table = Table::new(
+        rows.iter().map(|&index| {
+            let session = &sessions[index];
+            let mut cells = vec![
+                session.agent.to_string(),
+                relative(now, session.updated_at),
+                session.title.clone().unwrap_or_default(),
+            ];
+            if !compact {
+                cells.push(session.branch.clone().unwrap_or_default());
+            }
+            Row::new(cells)
+        }),
+        widths,
+    )
+    .row_highlight_style(Style::new().add_modifier(Modifier::REVERSED))
+    .highlight_symbol("▶ ");
+    let mut state = TableState::default().with_selected(Some(selected));
+    frame.render_stateful_widget(table, area, &mut state);
+}
+
+fn draw_preview(frame: &mut ratatui::Frame, area: Rect, preview: &Result<Vec<Message>, String>) {
+    let lines = match preview {
+        Ok(messages) if messages.is_empty() => {
+            vec![
+                Line::from("No conversation available")
+                    .style(Style::new().add_modifier(Modifier::DIM)),
+            ]
+        }
+        Ok(messages) => messages
+            .iter()
+            .map(|message| {
+                Line::from(vec![
+                    Span::styled(
+                        format!("{}: ", message.speaker.label()),
+                        Style::new().add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw(&message.text),
+                ])
+            })
+            .collect(),
+        Err(err) => vec![Line::from(err.as_str()).style(Style::new().add_modifier(Modifier::DIM))],
+    };
+    let paragraph = Paragraph::new(lines)
+        .block(Block::bordered().title(" conversation "))
+        .wrap(Wrap { trim: false });
+    let line_count = paragraph.line_count(area.width.saturating_sub(2));
+    let scroll = line_count
+        .saturating_sub(usize::from(area.height))
+        .min(usize::from(u16::MAX)) as u16;
+    frame.render_widget(paragraph.scroll((scroll, 0)), area);
 }
 
 fn relative(now: jiff::Timestamp, then: jiff::Timestamp) -> String {
@@ -317,6 +423,8 @@ fn relative(now: jiff::Timestamp, then: jiff::Timestamp) -> String {
 
 #[cfg(test)]
 mod tests {
+    use ratatui::backend::TestBackend;
+
     use super::*;
 
     fn session(agent: Agent, title: &str, cwd: &str) -> Session {
@@ -349,6 +457,7 @@ mod tests {
             solo: None,
             scoped: false,
             selected: 0,
+            preview: None,
         }
     }
 
@@ -395,6 +504,65 @@ mod tests {
                 None,
             ]
         );
+    }
+
+    #[test]
+    fn space_toggles_preview_instead_of_filtering() {
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)),
+            Action::TogglePreview
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            Action::Type('x')
+        );
+    }
+
+    #[test]
+    fn preview_renders_conversation_pane() {
+        let sessions = fixtures();
+        let rows = [0, 1, 2];
+        let mut state = state();
+        state.preview = Some(Ok(vec![Message {
+            speaker: conversation::Speaker::Agent,
+            text: "preview answer".into(),
+        }]));
+        let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+        terminal
+            .draw(|frame| draw(frame, &sessions, Path::new("/"), &state, &rows))
+            .unwrap();
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(rendered.contains("conversation"));
+        assert!(rendered.contains("agent: preview answer"));
+
+        state.preview = Some(Ok(vec![
+            Message {
+                speaker: conversation::Speaker::Agent,
+                text: "one two three four five six seven eight nine ten".into(),
+            },
+            Message {
+                speaker: conversation::Speaker::Agent,
+                text: "latest".into(),
+            },
+        ]));
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal
+            .draw(|frame| draw(frame, &sessions, Path::new("/"), &state, &rows))
+            .unwrap();
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(rendered.contains("agent: latest"));
     }
 
     #[test]

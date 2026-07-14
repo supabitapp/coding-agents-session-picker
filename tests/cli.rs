@@ -162,7 +162,16 @@ fn cursor_fixture(root: &Path) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    fs::create_dir_all(root.join(format!(".cursor/projects/{encoded}/agent-transcripts/cu-1"))).unwrap();
+    write_at(
+        &root.join(format!(
+            ".cursor/projects/{encoded}/agent-transcripts/cu-1/cu-1.jsonl"
+        )),
+        concat!(
+            "{\"role\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"cursor prompt\"}]}}\n",
+            "{\"role\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"cursor answer\"}]}}",
+        ),
+        BASE_MS + 20_000,
+    );
     let db = root.join("Library/Application Support/Cursor/User/globalStorage/state.vscdb");
     fs::create_dir_all(db.parent().unwrap()).unwrap();
     let conn = rusqlite::Connection::open(&db).unwrap();

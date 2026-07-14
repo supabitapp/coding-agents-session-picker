@@ -100,7 +100,13 @@ impl Cursor {
             };
             for entry in entries.flatten() {
                 if let Some(composer_id) = entry.file_name().to_str() {
-                    map.insert(composer_id.to_owned(), (encoded.clone(), entry.path()));
+                    map.insert(
+                        composer_id.to_owned(),
+                        (
+                            encoded.clone(),
+                            entry.path().join(format!("{composer_id}.jsonl")),
+                        ),
+                    );
                 }
             }
         }

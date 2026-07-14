@@ -2,8 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use serde_json::Value;
-
 use crate::session::{Agent, Session};
 
 mod claude;
@@ -73,29 +71,4 @@ fn modified_at(path: &Path) -> Option<jiff::Timestamp> {
     timestamp
         .round(jiff::TimestampRound::new().smallest(jiff::Unit::Millisecond))
         .ok()
-}
-
-fn text_blocks(content: &Value) -> Vec<String> {
-    match content {
-        Value::String(text) => vec![text.clone()],
-        Value::Array(blocks) => blocks
-            .iter()
-            .filter(|block| block["type"] == "text" || block["type"] == "input_text")
-            .filter_map(|block| block["text"].as_str().map(str::to_owned))
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
-fn is_preamble(text: &str) -> bool {
-    if text.starts_with("[Request interrupted by user") {
-        return true;
-    }
-    let mut chars = text.chars();
-    if chars.next() != Some('<') || !chars.next().is_some_and(|c| c.is_ascii_lowercase()) {
-        return false;
-    }
-    chars
-        .find(|c| !(c.is_ascii_alphanumeric() || *c == '_' || *c == '-'))
-        .is_some_and(|c| c == '>' || c.is_whitespace())
 }

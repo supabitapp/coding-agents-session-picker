@@ -6,6 +6,7 @@ use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::conversation::text_blocks;
 use crate::session::{Agent, Session, none_if_empty, truncate_chars};
 
 pub struct Pi {
@@ -40,7 +41,7 @@ fn read_session(path: &Path) -> Option<Session> {
         lines
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .find(|line| line["type"] == "message" && line["message"]["role"] == "user")
-            .map(|entry| super::text_blocks(&entry["message"]["content"]).join(" ")),
+            .map(|entry| text_blocks(&entry["message"]["content"]).join(" ")),
     )
     .map(|text| truncate_chars(&text, 80));
     Some(Session {
