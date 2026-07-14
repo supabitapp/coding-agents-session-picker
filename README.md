@@ -1,6 +1,6 @@
 # ap
 
-Pick and resume your Claude Code, Codex, Cursor, and Pi sessions from one place.
+`codex resume` or `claude --resume` takes forever to load? Run `ap` it's super fast all coding agents session picker.
 
 # Installation
 
@@ -28,4 +28,3 @@ ap -f json | jq '.[0]'                 # all sessions as JSON, newest first
 ap -a codex -n 20 -f table             # 20 latest Codex threads as a table
 ```
 
-Session metadata is cached in the system temporary directory (`$TMPDIR/ap/sessions.json` on macOS); only new or changed transcripts are re-parsed. Delete the file to force a full rescan.
