@@ -411,8 +411,8 @@ fn draw_table(
         vec![
             Constraint::Length(7),
             Constraint::Length(6),
-            Constraint::Min(20),
             Constraint::Length(18),
+            Constraint::Min(20),
         ]
     };
     let table = Table::new(
@@ -424,7 +424,7 @@ fn draw_table(
                 session.title.clone().unwrap_or_default(),
             ];
             if !compact {
-                cells.push(session.branch.clone().unwrap_or_default());
+                cells.insert(2, session.branch.clone().unwrap_or_default());
             }
             Row::new(cells)
         }),
@@ -580,8 +580,9 @@ mod tests {
     }
 
     #[test]
-    fn table_starts_with_relative_date() {
-        let sessions = fixtures();
+    fn table_shows_relative_date_and_branch_before_message() {
+        let mut sessions = fixtures();
+        sessions[0].branch = Some("feature".to_owned());
         let mut terminal = Terminal::new(TestBackend::new(60, 1)).unwrap();
         terminal
             .draw(|frame| {
@@ -604,6 +605,7 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect();
         assert!(rendered.starts_with("▶ 1w ago"));
+        assert!(rendered.find("feature").unwrap() < rendered.find("revamp sidebar").unwrap());
     }
 
     #[test]
