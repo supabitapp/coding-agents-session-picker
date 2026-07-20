@@ -32,6 +32,12 @@ pub enum Print {
     Json,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Launch {
+    Resume,
+    Fork,
+}
+
 struct State {
     query: String,
     cursor: usize,
@@ -70,7 +76,7 @@ pub fn run(
     scope: &Path,
     scoped: bool,
     limit: Option<usize>,
-) -> anyhow::Result<Option<usize>> {
+) -> anyhow::Result<Option<(usize, Launch)>> {
     let tty = OpenOptions::new()
         .read(true)
         .write(true)
@@ -95,33 +101,59 @@ pub fn field(session: &Session, print: Print) -> String {
     }
 }
 
-pub fn resume(session: &Session) -> anyhow::Error {
-    let mut command = resume_command(session);
+pub fn launch(session: &Session, launch: Launch) -> anyhow::Error {
+    let mut command = match launch_command(session, launch) {
+        Ok(command) => command,
+        Err(err) => return err,
+    };
     let program = command.get_program().to_string_lossy().into_owned();
     anyhow::Error::new(command.exec()).context(format!("launching {program}"))
 }
 
-fn resume_command(session: &Session) -> Command {
-    let mut command = match session.agent {
-        Agent::ClaudeCode => {
+fn launch_command(session: &Session, launch: Launch) -> anyhow::Result<Command> {
+    let mut command = match (session.agent, launch) {
+        (Agent::ClaudeCode, Launch::Resume) => {
             let mut command = Command::new("claude");
             command.arg("--resume").arg(&session.id);
             command
         }
-        Agent::Codex => {
+        (Agent::ClaudeCode, Launch::Fork) => {
+            let mut command = Command::new("claude");
+            command
+                .arg("--resume")
+                .arg(&session.id)
+                .arg("--fork-session");
+            command
+        }
+        (Agent::Codex, Launch::Resume) => {
             let mut command = Command::new("codex");
             command.arg("resume").arg(&session.id);
             command
         }
-        Agent::Cursor => {
+        (Agent::Codex, Launch::Fork) => {
+            let mut command = Command::new("codex");
+            command.arg("fork").arg(&session.id);
+            command
+        }
+        (Agent::Cursor, Launch::Resume) => {
             let mut command = Command::new("cursor-agent");
             command.arg("--resume").arg(&session.id);
             command
         }
-        Agent::Pi => {
+        (Agent::Cursor, Launch::Fork) => {
+            anyhow::bail!("selected agent does not support forking sessions")
+        }
+        (Agent::Pi, Launch::Resume) => {
             let mut command = Command::new("pi");
             command
                 .arg("--session")
+                .arg(session.path.as_deref().unwrap_or(&session.id));
+            command
+        }
+        (Agent::Pi, Launch::Fork) => {
+            let mut command = Command::new("pi");
+            command
+                .arg("--fork")
                 .arg(session.path.as_deref().unwrap_or(&session.id));
             command
         }
@@ -129,7 +161,7 @@ fn resume_command(session: &Session) -> Command {
     if let Some(cwd) = session.cwd.as_deref().filter(|cwd| Path::new(cwd).is_dir()) {
         command.current_dir(cwd);
     }
-    command
+    Ok(command)
 }
 
 fn event_loop(
@@ -139,7 +171,7 @@ fn event_loop(
     scoped: bool,
     limit: Option<usize>,
     background: Option<(u8, u8, u8)>,
-) -> anyhow::Result<Option<usize>> {
+) -> anyhow::Result<Option<(usize, Launch)>> {
     let mut matcher = Matcher::new(Config::DEFAULT);
     let mut state = State {
         query: String::new(),
@@ -169,9 +201,9 @@ fn event_loop(
         }
         match action(key) {
             Action::Quit => return Ok(None),
-            Action::Accept => {
+            Action::Accept(launch) => {
                 if let Some(&index) = rows.get(state.selected) {
-                    return Ok(Some(index));
+                    return Ok(Some((index, launch)));
                 }
             }
             Action::Move(delta) => {
@@ -236,7 +268,7 @@ fn event_loop(
 #[derive(Debug, PartialEq, Eq)]
 enum Action {
     Quit,
-    Accept,
+    Accept(Launch),
     Move(isize),
     TogglePreview,
     FocusToolbar(isize),
@@ -256,7 +288,8 @@ fn action(key: KeyEvent) -> Action {
     match key.code {
         KeyCode::Esc => Action::Quit,
         KeyCode::Char('c') if ctrl => Action::Quit,
-        KeyCode::Enter => Action::Accept,
+        KeyCode::Enter => Action::Accept(Launch::Resume),
+        KeyCode::Char('d') if ctrl => Action::Accept(Launch::Fork),
         KeyCode::Up => Action::Move(-1),
         KeyCode::Down => Action::Move(1),
         KeyCode::Char('p') if ctrl => Action::Move(-1),
@@ -478,7 +511,7 @@ fn draw(
     );
     frame.render_widget(
         Line::from(format!(
-            "{}/{} · ↑↓ move · tab focus · ←→ change · ctrl-t preview · enter resume · esc quit",
+            "{}/{} · ↑↓ move · tab focus · ←→ change · ctrl-t preview · enter resume · ctrl-d fork · esc quit",
             rows.len(),
             sessions.len(),
         ))
@@ -1043,6 +1076,18 @@ mod tests {
     }
 
     #[test]
+    fn enter_resumes_and_ctrl_d_forks() {
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Action::Accept(Launch::Resume)
+        );
+        assert_eq!(
+            action(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            Action::Accept(Launch::Fork)
+        );
+    }
+
+    #[test]
     fn tab_and_arrows_control_toolbar() {
         assert_eq!(
             action(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
@@ -1156,7 +1201,8 @@ mod tests {
     #[test]
     fn resume_commands_match_each_agent_cli() {
         let shape = |agent, title: &str| {
-            let command = resume_command(&session(agent, title, "/nonexistent"));
+            let command =
+                launch_command(&session(agent, title, "/nonexistent"), Launch::Resume).unwrap();
             let args: Vec<String> = command
                 .get_args()
                 .map(|arg| arg.to_string_lossy().into_owned())
@@ -1188,27 +1234,77 @@ mod tests {
     }
 
     #[test]
-    fn resume_runs_in_session_cwd_when_it_exists() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut with_dir = session(Agent::Codex, "x", dir.path().to_str().unwrap());
+    fn fork_commands_match_each_agent_cli() {
+        let shape = |agent, title: &str| {
+            let command =
+                launch_command(&session(agent, title, "/nonexistent"), Launch::Fork).unwrap();
+            let args: Vec<String> = command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            (command.get_program().to_string_lossy().into_owned(), args)
+        };
         assert_eq!(
-            resume_command(&with_dir).get_current_dir(),
-            Some(dir.path())
+            shape(Agent::ClaudeCode, "a"),
+            (
+                "claude".into(),
+                vec![
+                    "--resume".into(),
+                    "claude-code-a".into(),
+                    "--fork-session".into()
+                ]
+            )
         );
-        with_dir.cwd = Some("/does/not/exist".into());
-        assert_eq!(resume_command(&with_dir).get_current_dir(), None);
+        assert_eq!(
+            shape(Agent::Codex, "b"),
+            ("codex".into(), vec!["fork".into(), "codex-b".into()])
+        );
+        assert_eq!(
+            shape(Agent::Pi, "d"),
+            ("pi".into(), vec!["--fork".into(), "pi-d".into()])
+        );
+        assert_eq!(
+            launch_command(
+                &session(Agent::Cursor, "c", "/nonexistent"),
+                Launch::Fork
+            )
+            .unwrap_err()
+            .to_string(),
+            "selected agent does not support forking sessions"
+        );
     }
 
     #[test]
-    fn pi_resume_prefers_transcript_path() {
+    fn launch_runs_in_session_cwd_when_it_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut with_dir = session(Agent::Codex, "x", dir.path().to_str().unwrap());
+        for launch in [Launch::Resume, Launch::Fork] {
+            assert_eq!(
+                launch_command(&with_dir, launch).unwrap().get_current_dir(),
+                Some(dir.path())
+            );
+        }
+        with_dir.cwd = Some("/does/not/exist".into());
+        assert_eq!(
+            launch_command(&with_dir, Launch::Fork)
+                .unwrap()
+                .get_current_dir(),
+            None
+        );
+    }
+
+    #[test]
+    fn pi_launch_prefers_transcript_path() {
         let mut pi = session(Agent::Pi, "x", "/w");
         pi.path = Some("/w/sessions/x.jsonl".into());
-        let command = resume_command(&pi);
-        let args: Vec<_> = command
-            .get_args()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(args, ["--session", "/w/sessions/x.jsonl"]);
+        for (launch, flag) in [(Launch::Resume, "--session"), (Launch::Fork, "--fork")] {
+            let command = launch_command(&pi, launch).unwrap();
+            let args: Vec<_> = command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            assert_eq!(args, [flag, "/w/sessions/x.jsonl"]);
+        }
     }
 
     #[test]

@@ -47,7 +47,7 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Cmd {
-    #[command(about = "Pick a session interactively and resume it in its agent")]
+    #[command(about = "Pick a session interactively to resume or fork it in its agent")]
     Pick {
         #[arg(long, help = "Start showing all directories instead of the current one")]
         all: bool,
@@ -120,7 +120,7 @@ fn run_picker(cli: &Cli, sessions: &[Session], all: bool, print: Option<pick::Pr
         .map(|dir| std::fs::canonicalize(&dir).unwrap_or(dir))
         .unwrap_or_default();
     match pick::run(sessions, &scope, !all, cli.limit) {
-        Ok(Some(index)) => {
+        Ok(Some((index, launch))) => {
             let session = &sessions[index];
             match print {
                 Some(field) => {
@@ -128,7 +128,7 @@ fn run_picker(cli: &Cli, sessions: &[Session], all: bool, print: Option<pick::Pr
                     exit(failed)
                 }
                 None => {
-                    let err = pick::resume(session);
+                    let err = pick::launch(session, launch);
                     eprintln!("{}: {err:#}", env!("CARGO_BIN_NAME"));
                     ExitCode::FAILURE
                 }
